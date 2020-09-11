@@ -92,5 +92,10 @@
       "@semantic-release/github"
     ],
     "branch": "master"
+  },
+  "release-it": {
+    "git": {
+      "commitMessage": "chore: release v${version}"
+    }
   }
 }
