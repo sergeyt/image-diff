@@ -1,5 +1,5 @@
 {
-  "name": "image-diff",
+  "name": "image-snapshot-diff",
   "version": "0.0.0",
   "description": "Image diff extracted from jest-image-snapshot.",
   "main": "src/index.js",
