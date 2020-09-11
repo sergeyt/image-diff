@@ -1,7 +1,7 @@
 {
-  "name": "jest-image-snapshot",
-  "version": "4.2.0",
-  "description": "Jest matcher for image comparisons. Most commonly used for visual regression testing.",
+  "name": "image-diff",
+  "version": "0.1.0",
+  "description": "Image diff extracted from jest-image-snapshot.",
   "main": "src/index.js",
   "engines": {
     "node": ">= 10.14.2"
@@ -14,18 +14,15 @@
     "posttest": "npm run lint && npm run test:git-history && npm run test:lockfile"
   },
   "keywords": [
-    "test",
-    "amex",
-    "visual testing",
-    "css",
-    "jest",
-    "browser testing"
+    "image diff",
+    "image comparison"
   ],
   "jest": {
     "preset": "amex-jest-preset",
     "collectCoverageFrom": [
       "src/*.js",
       "!src/diff-process.js",
+      "!src/index.js",
       "!**/node_modules/**",
       "!test-results/**"
     ],
@@ -35,11 +32,19 @@
     "coveragePathIgnorePatterns": [
       "/node_modules/",
       "<rootDir>/examples"
-    ]
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    }
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/americanexpress/jest-image-snapshot.git"
+    "url": "https://github.com/sergeyt/image-diff.git"
   },
   "author": "Andres Escobar <andres.escobar@aexp.com> (https://github.com/anescobar1991)",
   "license": "Apache-2.0",
@@ -60,14 +65,12 @@
     "semantic-release": "^17.0.4"
   },
   "dependencies": {
-    "chalk": "^1.1.3",
     "get-stdin": "^5.0.1",
     "glur": "^1.1.2",
-    "lodash": "^4.17.4",
     "mkdirp": "^0.5.1",
     "pixelmatch": "^5.1.0",
     "pngjs": "^3.4.0",
-    "rimraf": "^2.6.2",
+    "rimraf": "^3.0.2",
     "ssim.js": "^3.1.1"
   },
   "peerDependencies": {

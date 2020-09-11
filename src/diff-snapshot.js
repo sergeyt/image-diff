@@ -148,9 +148,12 @@ const alignImagesToSameSize = (firstImage, secondImage) => {
 
 const isFailure = ({ pass, updateSnapshot }) => !pass && !updateSnapshot;
 
-const shouldUpdate = ({ pass, updateSnapshot, updatePassedSnapshot }) => (
-  (!pass && updateSnapshot) || (pass && updatePassedSnapshot)
-);
+const shouldUpdate = ({
+  pass,
+  updateSnapshot,
+  updatePassedSnapshot,
+  baselineImageBuffer,
+}) => !baselineImageBuffer && ((!pass && updateSnapshot) || (pass && updatePassedSnapshot));
 
 const shouldFail = ({
   totalPixels,
@@ -184,9 +187,28 @@ const shouldFail = ({
   };
 };
 
+const makeBaselineSnapshotPath = ({ snapshotsDir, snapshotIdentifier, baselineImageBuffer }) => {
+  const baselineSnapshotPath = !baselineImageBuffer && path.join(snapshotsDir, `${snapshotIdentifier}-snap.png`);
+  const baselineSnapshotExists = baselineSnapshotPath && fs.existsSync(baselineSnapshotPath);
+  return { baselineSnapshotPath, baselineSnapshotExists };
+};
+
+const makeRawImages = ({
+  receivedImageBuffer,
+  baselineImageBuffer,
+  baselineSnapshotPath,
+}) => {
+  const rawReceivedImage = PNG.sync.read(receivedImageBuffer);
+  const rawBaselineImage = baselineImageBuffer
+    ? PNG.sync.read(baselineImageBuffer)
+    : PNG.sync.read(fs.readFileSync(baselineSnapshotPath));
+  return { rawReceivedImage, rawBaselineImage };
+};
+
 function diffImageToSnapshot(options) {
   const {
     receivedImageBuffer,
+    baselineImageBuffer,
     snapshotIdentifier,
     snapshotsDir,
     diffDir,
@@ -202,125 +224,137 @@ function diffImageToSnapshot(options) {
   } = options;
 
   const comparisonFn = comparisonMethod === 'ssim' ? ssimMatch : pixelmatch;
-  let result = {};
-  const baselineSnapshotPath = path.join(snapshotsDir, `${snapshotIdentifier}-snap.png`);
-  if (!fs.existsSync(baselineSnapshotPath)) {
+  const { baselineSnapshotPath, baselineSnapshotExists } = makeBaselineSnapshotPath({
+    snapshotsDir,
+    snapshotIdentifier,
+    baselineImageBuffer,
+  });
+  if (!baselineSnapshotExists) {
     mkdirp.sync(snapshotsDir);
     fs.writeFileSync(baselineSnapshotPath, receivedImageBuffer);
-    result = { added: true };
-  } else {
-    const diffOutputPath = path.join(diffDir, `${snapshotIdentifier}-diff.png`);
-    rimraf.sync(diffOutputPath);
+    return { added: true };
+  }
 
-    const defaultDiffConfig = comparisonMethod !== 'ssim' ? defaultPixelmatchDiffConfig : defaultSSIMDiffConfig;
+  const diffOutputPath = path.join(diffDir, `${snapshotIdentifier}-diff.png`);
+  rimraf.sync(diffOutputPath);
 
-    const diffConfig = Object.assign({}, defaultDiffConfig, customDiffConfig);
+  const defaultDiffConfig = comparisonMethod !== 'ssim' ? defaultPixelmatchDiffConfig : defaultSSIMDiffConfig;
 
-    const rawReceivedImage = PNG.sync.read(receivedImageBuffer);
-    const rawBaselineImage = PNG.sync.read(fs.readFileSync(baselineSnapshotPath));
-    const hasSizeMismatch = (
-      rawReceivedImage.height !== rawBaselineImage.height ||
-      rawReceivedImage.width !== rawBaselineImage.width
-    );
-    const imageDimensions = {
-      receivedHeight: rawReceivedImage.height,
-      receivedWidth: rawReceivedImage.width,
-      baselineHeight: rawBaselineImage.height,
-      baselineWidth: rawBaselineImage.width,
-    };
-    // Align images in size if different
-    const [receivedImage, baselineImage] = hasSizeMismatch
-      ? alignImagesToSameSize(rawReceivedImage, rawBaselineImage)
-      : [rawReceivedImage, rawBaselineImage];
-    const imageWidth = receivedImage.width;
-    const imageHeight = receivedImage.height;
+  const diffConfig = Object.assign({}, defaultDiffConfig, customDiffConfig);
 
-    if (typeof blur === 'number' && blur > 0) {
-      glur(receivedImage.data, imageWidth, imageHeight, blur);
-      glur(baselineImage.data, imageWidth, imageHeight, blur);
-    }
+  const { rawReceivedImage, rawBaselineImage } = makeRawImages({
+    receivedImageBuffer,
+    baselineImageBuffer,
+    baselineSnapshotPath,
+  });
+  const hasSizeMismatch = (
+    rawReceivedImage.height !== rawBaselineImage.height ||
+    rawReceivedImage.width !== rawBaselineImage.width
+  );
+  const imageDimensions = {
+    receivedHeight: rawReceivedImage.height,
+    receivedWidth: rawReceivedImage.width,
+    baselineHeight: rawBaselineImage.height,
+    baselineWidth: rawBaselineImage.width,
+  };
+  // Align images in size if different
+  const [receivedImage, baselineImage] = hasSizeMismatch
+    ? alignImagesToSameSize(rawReceivedImage, rawBaselineImage)
+    : [rawReceivedImage, rawBaselineImage];
+  const imageWidth = receivedImage.width;
+  const imageHeight = receivedImage.height;
 
-    const diffImage = new PNG({ width: imageWidth, height: imageHeight });
+  if (typeof blur === 'number' && blur > 0) {
+    glur(receivedImage.data, imageWidth, imageHeight, blur);
+    glur(baselineImage.data, imageWidth, imageHeight, blur);
+  }
 
-    let diffPixelCount = 0;
+  const diffImage = new PNG({ width: imageWidth, height: imageHeight });
 
-    diffPixelCount = comparisonFn(
-      receivedImage.data,
-      baselineImage.data,
-      diffImage.data,
-      imageWidth,
-      imageHeight,
-      diffConfig
-    );
+  let diffPixelCount = 0;
 
-    const totalPixels = imageWidth * imageHeight;
+  diffPixelCount = comparisonFn(
+    receivedImage.data,
+    baselineImage.data,
+    diffImage.data,
+    imageWidth,
+    imageHeight,
+    diffConfig
+  );
 
-    const {
-      pass,
-      diffSize,
-      diffRatio,
-    } = shouldFail({
-      totalPixels,
-      diffPixelCount,
-      hasSizeMismatch,
-      allowSizeMismatch,
-      failureThresholdType,
-      failureThreshold,
+  const totalPixels = imageWidth * imageHeight;
+
+  const {
+    pass,
+    diffSize,
+    diffRatio,
+  } = shouldFail({
+    totalPixels,
+    diffPixelCount,
+    hasSizeMismatch,
+    allowSizeMismatch,
+    failureThresholdType,
+    failureThreshold,
+  });
+
+  if (isFailure({ pass, updateSnapshot })) {
+    mkdirp.sync(diffDir);
+    const composer = new ImageComposer({
+      direction: diffDirection,
     });
 
-    if (isFailure({ pass, updateSnapshot })) {
-      mkdirp.sync(diffDir);
-      const composer = new ImageComposer({
-        direction: diffDirection,
-      });
+    composer.addImage(baselineImage, imageWidth, imageHeight);
+    composer.addImage(diffImage, imageWidth, imageHeight);
+    composer.addImage(receivedImage, imageWidth, imageHeight);
 
-      composer.addImage(baselineImage, imageWidth, imageHeight);
-      composer.addImage(diffImage, imageWidth, imageHeight);
-      composer.addImage(receivedImage, imageWidth, imageHeight);
+    const composerParams = composer.getParams();
 
-      const composerParams = composer.getParams();
+    const compositeResultImage = new PNG({
+      width: composerParams.compositeWidth,
+      height: composerParams.compositeHeight,
+    });
 
-      const compositeResultImage = new PNG({
-        width: composerParams.compositeWidth,
-        height: composerParams.compositeHeight,
-      });
+    // copy baseline, diff, and received images into composite result image
+    composerParams.images.forEach((image, index) => {
+      PNG.bitblt(
+        image.imageData, compositeResultImage, 0, 0, image.imageWidth, image.imageHeight,
+        composerParams.offsetX * index, composerParams.offsetY * index
+      );
+    });
+    // Set filter type to Paeth to avoid expensive auto scanline filter detection
+    // For more information see https://www.w3.org/TR/PNG-Filters.html
+    const pngBuffer = PNG.sync.write(compositeResultImage, { filterType: 4 });
+    fs.writeFileSync(diffOutputPath, pngBuffer);
 
-      // copy baseline, diff, and received images into composite result image
-      composerParams.images.forEach((image, index) => {
-        PNG.bitblt(
-          image.imageData, compositeResultImage, 0, 0, image.imageWidth, image.imageHeight,
-          composerParams.offsetX * index, composerParams.offsetY * index
-        );
-      });
-      // Set filter type to Paeth to avoid expensive auto scanline filter detection
-      // For more information see https://www.w3.org/TR/PNG-Filters.html
-      const pngBuffer = PNG.sync.write(compositeResultImage, { filterType: 4 });
-      fs.writeFileSync(diffOutputPath, pngBuffer);
-
-      result = {
-        pass: false,
-        diffSize,
-        imageDimensions,
-        diffOutputPath,
-        diffRatio,
-        diffPixelCount,
-        imgSrcString: `data:image/png;base64,${pngBuffer.toString('base64')}`,
-      };
-    } else if (shouldUpdate({ pass, updateSnapshot, updatePassedSnapshot })) {
-      mkdirp.sync(snapshotsDir);
-      fs.writeFileSync(baselineSnapshotPath, receivedImageBuffer);
-      result = { updated: true };
-    } else {
-      result = {
-        pass,
-        diffSize,
-        diffRatio,
-        diffPixelCount,
-        diffOutputPath,
-      };
-    }
+    return {
+      pass: false,
+      diffSize,
+      imageDimensions,
+      diffOutputPath,
+      diffRatio,
+      diffPixelCount,
+      imgSrcString: `data:image/png;base64,${pngBuffer.toString('base64')}`,
+    };
   }
-  return result;
+
+  if (shouldUpdate({
+    pass,
+    updateSnapshot,
+    updatePassedSnapshot,
+    baselineImageBuffer,
+  })) {
+    mkdirp.sync(snapshotsDir);
+    fs.writeFileSync(baselineSnapshotPath, receivedImageBuffer);
+    return { updated: true };
+  }
+
+  return {
+    pass,
+    diffSize,
+    diffRatio,
+    diffPixelCount,
+    diffOutputPath,
+  };
 }
 
 function runDiffImageToSnapshot(options) {
