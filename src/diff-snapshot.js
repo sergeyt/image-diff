@@ -189,7 +189,7 @@ const shouldFail = ({
 
 const makeBaselineSnapshotPath = ({ snapshotsDir, snapshotIdentifier, baselineImageBuffer }) => {
   const baselineSnapshotPath = !baselineImageBuffer && path.join(snapshotsDir, `${snapshotIdentifier}-snap.png`);
-  const baselineSnapshotExists = baselineSnapshotPath && fs.existsSync(baselineSnapshotPath);
+  const baselineSnapshotExists = baselineImageBuffer || fs.existsSync(baselineSnapshotPath);
   return { baselineSnapshotPath, baselineSnapshotExists };
 };
 
